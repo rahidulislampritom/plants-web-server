@@ -49,6 +49,13 @@ const client = new MongoClient(uri, {
 })
 async function run() {
   try {
+
+    const db = client.db('plantNet-session');
+    const userCollection = db.collection('users');
+    const plantsCollection = db.collection('plants');
+    const orderCollection = db.collection('Orders');
+
+
     // Generate jwt token
     app.post('/jwt', async (req, res) => {
       const email = req.body
@@ -78,7 +85,73 @@ async function run() {
       }
     })
 
-    // Send a ping to confirm a successful connection
+    // this post for set users info in db userCollection from (AuthProvider.jsx)
+    app.post('/users/:email', async (req, res) => {
+      const email = req.params.email;
+      const user = req.body;
+      const query = { email };
+      const isExit = await userCollection.findOne(query);
+      if (isExit) {
+        return res.send(isExit);
+      }
+      const result = await userCollection.insertOne(
+        {
+          ...user,
+          timestamp: Date.now(),
+          role: 'customer'
+        }
+      );
+      res.send(result);
+    })
+
+    // this post for setting add plant data to data base from (AddPlants.jsx)
+    app.post('/plants', verifyToken, async (req, res) => {
+      const data = req.body;
+      const result = await plantsCollection.insertOne(data)
+      res.send(result);
+    })
+    // this get operation doing for show plants data in (Plants.jsx) 
+    app.get('/plants', async (req, res) => {
+      const result = await plantsCollection.find().toArray();
+      res.send(result)
+    })
+
+    // this get operation is getting plantDetails by id in (PlantDetails.jsx) 
+    app.get('/plantDetails/:id', async (req, res) => {
+      const id = req.params.id;
+      const query = { _id: new ObjectId(id) };
+      const result = await plantsCollection.findOne(query);
+      res.send(result);
+    })
+
+    // this post is posting order plants data from (PurchaseModal.jsx )
+    app.post('/order', verifyToken, async (req, res) => {
+      const data = req.body;
+      const result = await orderCollection.insertOne(data)
+      res.send(result)
+    })
+
+    // this patch is updating the plantsCollection quantity in db from (PurchaseModal.jsx)
+    app.patch('/plants/quantity/:id', async (req, res) => {
+      const id = req.params.id;
+      const { buyingPlansQuantity } = req.body;
+      console.log(buyingPlansQuantity);
+      const filter = { _id: new ObjectId(id) };
+      let updateDoc = {
+        $inc: { quantity: -buyingPlansQuantity },
+      };
+      const result = await plantsCollection.updateOne(filter, updateDoc);
+      res.send(result);
+    })
+
+    app.get('/customer-orders/:email', async (req, res) => {
+      const email = req.params?.email;
+      const query = { 'customer.email': email }
+      const result = await orderCollection.find(query).toArray();
+      res.send(result);
+    })
+
+    // Send a ping to confirm a successful connection 
     await client.db('admin').command({ ping: 1 })
     console.log(
       'Pinged your deployment. You successfully connected to MongoDB!'
