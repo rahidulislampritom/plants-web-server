@@ -69,7 +69,9 @@ async function run() {
           sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'strict',
         })
         .send({ success: true })
-    })
+    });
+
+
     // Logout
     app.get('/logout', async (req, res) => {
       try {
@@ -83,7 +85,8 @@ async function run() {
       } catch (err) {
         res.status(500).send(err)
       }
-    })
+    });
+
 
     // this post for set users info in db userCollection from (AuthProvider.jsx)
     app.post('/users/:email', async (req, res) => {
@@ -102,7 +105,8 @@ async function run() {
         }
       );
       res.send(result);
-    })
+    });
+
 
     // this post for setting add plant data to data base from (AddPlants.jsx)
     app.post('/plants', verifyToken, async (req, res) => {
@@ -110,11 +114,14 @@ async function run() {
       const result = await plantsCollection.insertOne(data)
       res.send(result);
     })
+
+
     // this get operation doing for show plants data in (Plants.jsx) 
     app.get('/plants', async (req, res) => {
       const result = await plantsCollection.find().toArray();
       res.send(result)
-    })
+    });
+
 
     // this get operation is getting plantDetails by id in (PlantDetails.jsx) 
     app.get('/plantDetails/:id', async (req, res) => {
@@ -122,34 +129,132 @@ async function run() {
       const query = { _id: new ObjectId(id) };
       const result = await plantsCollection.findOne(query);
       res.send(result);
-    })
+    });
+
 
     // this post is posting order plants data from (PurchaseModal.jsx )
     app.post('/order', verifyToken, async (req, res) => {
       const data = req.body;
       const result = await orderCollection.insertOne(data)
       res.send(result)
-    })
+    });
 
-    // this patch is updating the plantsCollection quantity in db from (PurchaseModal.jsx)
+
+    // this patch is updating the plantsCollection quantity in db from (PurchaseModal.jsx) and (CustomerOrderDataRow.jsx)
     app.patch('/plants/quantity/:id', async (req, res) => {
       const id = req.params.id;
-      const { buyingPlansQuantity } = req.body;
-      console.log(buyingPlansQuantity);
+      const { quantityToUpdate, status } = req.body;
+      console.log(quantityToUpdate, status)
       const filter = { _id: new ObjectId(id) };
+
       let updateDoc = {
-        $inc: { quantity: -buyingPlansQuantity },
+        $inc: { quantity: -quantityToUpdate },
       };
+
+      if (status === 'increase') {
+        updateDoc = {
+          $inc: { quantity: quantityToUpdate },
+        }
+      }
       const result = await plantsCollection.updateOne(filter, updateDoc);
       res.send(result);
-    })
+    });
 
+
+    // this get operation is getting order data maching by email in (MyOrder.jsx)
     app.get('/customer-orders/:email', async (req, res) => {
       const email = req.params?.email;
       const query = { 'customer.email': email }
-      const result = await orderCollection.find(query).toArray();
+      const result = await orderCollection.aggregate([
+
+        {
+          $match: query
+        },
+        {
+          $addFields: {
+            plantId: { $toObjectId: '$plantId' }
+          }
+        },
+        {
+          $lookup: {
+            from: 'plants',
+            localField: 'plantId',
+            foreignField: '_id',
+            as: 'plants'
+          },
+        },
+        {
+          $unwind: '$plants'
+        },
+        {
+          $addFields: {
+            name: '$plants.name',
+            image: '$plants.image',
+            category: '$plants.category'
+          }
+        },
+        {
+          $project: {
+            plants: 0
+          }
+        }
+
+      ]).toArray();
+      res.send(result);
+    });
+
+
+    // this is delete operation deleting order data clicking in cancel from (CustomerOrderDataRow.jsx) 
+    app.delete('/orders/:id', async (req, res) => {
+      const id = req.params.id;
+      const query = { _id: new ObjectId(id) };
+      const order = await orderCollection.findOne(query);
+
+      if (order.status === 'Delivered') {
+        return res.status(409).send('Cannot cancel once the product is delivered!')
+      }
+
+      const result = await orderCollection.deleteOne(query);
+      res.send(result);
+    });
+
+
+    // manage user status db in from (customerMenu.jsx)
+    app.patch('/users/:email', async (req, res) => {
+      const email = req.params.email;
+      const query = { email };
+      const user = await userCollection.findOne(query);
+
+      if (!user || user?.status === 'Requested') return res.status(400).send('You have already requested,wait for some time.');
+
+      const updateDoc = {
+        $set: {
+          status: 'Requested'
+        }
+      };
+
+      const result = await userCollection.updateOne(query, updateDoc);
+      res.send(result);
+    });
+
+
+    // this get operation for getting role of user from usersDB using hook name (useRole.jsx)
+    app.get('/users/role/:email', async (req, res) => {
+      const email = req.params.email;
+      const query = { email };
+      const result = await userCollection.findOne(query);
+      res.send({ role: result?.role })
+    });
+
+    // this get operation is getting data of users without admin from (ManageUsers.jsx)
+    app.get('/allUsers/:email', async (req, res) => {
+      const email = req.params.email;
+      const query = { email: { $ne: email } };
+      const result = await userCollection.find(query).toArray();
       res.send(result);
     })
+
+
 
     // Send a ping to confirm a successful connection 
     await client.db('admin').command({ ping: 1 })
